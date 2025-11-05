@@ -1,102 +1,88 @@
-# Jeopardy Data Curation Project
+# Jeopardy Data Curation
 
-This project curates specialized datasets from Jeopardy questions for Named Entity Recognition (NER) evaluation. It processes the JEOPARDY_QUESTIONS1.json file to create three distinct strata suitable for comparing NER algorithm performance.
+Curate focused evaluation sets from the Jeopardy questions corpus for NER and linguistic analysis. This project streams and analyzes a large JSON dump of Jeopardy clues to extract three evaluation strata useful for comparing NER systems and researching rare or tricky linguistic phenomena.
 
-## Strata Types
+## What this repo produces
+- Sampled JSONL datasets (under `data/output/`) containing records selected for three distinct strata:
+  1. Phrases containing numbers (digits or written numbers, percentages, decimals)
+  2. Phrases containing non-English text or non-ASCII tokens
+  3. Phrases containing unusual / low-frequency proper nouns (based on corpus-wide counts and spaCy NER/POS)
 
-1. **Phrases Containing Numbers**
-   - Detects both numeric digits and spelled-out numbers
-   - Includes percentage values and decimal numbers
-   - Uses regex pattern matching for reliable detection
+These strata are designed to surface edge cases that commonly break off-the-shelf NER models.
 
-2. **Phrases Containing Non-English Words**
-   - Uses two-stage detection:
-     - Language detection using `langdetect` library
-     - Non-ASCII character detection as a fallback
-   - Handles both full non-English phrases and mixed language content
+## Quick start
 
-3. **Phrases Containing Unusual Proper Nouns**
-   - Builds a corpus-wide frequency counter for proper nouns
-   - Uses spaCy for Named Entity Recognition and POS tagging
-   - Considers entities "unusual" based on frequency thresholds
-   - Combines both NER and POS tagging results for better coverage
+1. Install dependencies (recommended: virtualenv or venv):
 
-## Curation Process
+   pip install -r requirements.txt
 
-1. **Data Loading (JeopardyDataLoader)**
-   - Streams JSON using `ijson` to handle large files efficiently
-   - Normalizes data fields (e.g., converts dollar values to integers)
-   - Handles null values and data cleaning
+2. (Optional) Install spaCy model used by the analyzer:
 
-2. **Text Analysis (TextAnalyzer)**
-   - Uses spaCy (`en_core_web_md` model) for NLP tasks
-   - Provides utilities for:
-     - Number detection
-     - Language detection
-     - Named entity extraction
-     - POS tagging
+   python -m spacy download en_core_web_sm
 
-3. **Classification (JeopardyRecordClassifier)**
-   - Maintains corpus statistics
-   - Classifies records into different strata
-   - Handles edge cases and error conditions
+3. Run the main curation script:
 
-4. **Result Generation (JeopardyCurator)**
-   - Creates random samples of 1000 records per stratum
-   - Saves results in JSONL format
-   - Provides total counts for each category
+   python main.py
 
-## Usage
+By default the curator reads `data/JEOPARDY_QUESTIONS1.json` and writes sampled jsonl outputs to `data/output/`.
+
+## How it works (overview)
+
+- Data loading: `dataloader/dataloader.py` contains a streaming JSON loader that uses ijson to iterate records without loading the entire file into memory. Records are normalized and cleaned as they are streamed.
+- Text analysis: `utils/text_analysis.py` wraps spaCy and `langdetect` helpers for tasks such as language detection, number detection (including spelled-out numbers), NER, and POS tagging.
+- Curation logic: `data_curator/curate.py` implements the selection rules for each stratum, builds corpus-wide frequency stats for proper nouns, performs sampling, and writes JSONL output files.
+
+## Examples
+
+Minimal usage from Python:
 
 ```python
 from data_curator.curate import JeopardyCurator
-from utils.constants import *
 
-# Initialize curator
-curator = JeopardyCurator(
-    source_file="data/JEOPARDY_QUESTIONS1.json",
-    sample_size=1000
-)
-
-# Process records and get results
+curator = JeopardyCurator(source_file="data/JEOPARDY_QUESTIONS1.json", sample_size=1000)
 results = curator.process_records()
-
-# Results are saved to data/output/*.jsonl
+# results contains summary counts and paths to generated files
 ```
 
-## Third-Party Libraries
+Generated files (example):
+- `data/output/numbers.jsonl` — sampled records with numeric content
+- `data/output/non_english.jsonl` — sampled records flagged as non-English / non-ASCII
+- `data/output/unusual_proper_nouns.jsonl` — sampled records containing low-frequency proper nouns
 
-- **ijson**: Stream-processes JSON files without loading entire file into memory
-- **spaCy**: Industrial-strength Natural Language Processing
-- **langdetect**: Language detection based on character sequences
-- **tqdm**: Progress bar for long-running processes
-- **pathlib**: Object-oriented filesystem paths
-- **typing**: Type hints for better code documentation
+## Project structure
 
-## Project Structure
+Top-level layout (important files):
+
 ```
-├── README.md                    # This file
-├── main.py                      # CLI entry point that runs the curator
-├── data/
-│   ├── JEOPARDY_QUESTIONS1.json  # Source JSON (200K records)
-│   └── output/                   # Generated strata (jsonl files)
-├── data_curator/
-│   ├── __init__.py
-│   ├── classifier.py             # Record classification logic (JeopardyRecordClassifier)
-│   └── curate.py                 # Main curation orchestrator (JeopardyCurator)
-├── dataloader/
-│   ├── __init__.py
-│   └── dataloader.py             # Streaming loader and save helper (JeopardyDataLoader, JeopardyRecord)
-├── utils/
-│   ├── __init__.py
-│   ├── constants.py              # Config from env vars (DEFAULT_DATA_PATH SAMPLE_SIZE, etc.)
-│   └── text_analysis.py          # TextAnalyzer (spaCy + langdetect helpers)
-│   └── __pycache__/
-├── notebooks/
-│   ├── 1_initial_data_exploration.ipynb
-│   └── 2_final_results.ipynb
+main.py                     # CLI entrypoint
+data/JEOPARDY_QUESTIONS1.json # Source corpus (large JSON)
+data/output/                # Generated jsonl outputs
+data_curator/curate.py      # Orchestrates selection & sampling
+dataloader/dataloader.py    # Streaming loader & normalization helpers
+utils/text_analysis.py      # spaCy + langdetect wrappers for detection & extraction
+utils/constants.py          # Configuration (defaults, sample sizes, paths)
+notebooks/                  # Exploratory analysis and results notebooks
 ```
 
-## Statistics
+## Dependencies
 
-The code provides total counts for each stratum before sampling, allowing estimation of the prevalence of each pattern in the full dataset of approximately 200K questions.
+Key runtime dependencies (see `requirements.txt`):
+- ijson — streaming JSON parsing
+- spacy — NLP pipeline (NER/POS)
+- langdetect — language identification
+- tqdm — progress bars
+
+## Notes & assumptions
+
+- The pipeline expects a large JSON file where each item is a Jeopardy question record (the provided `JEOPARDY_QUESTIONS1.json`).
+- SpaCy model `en_core_web_md` (or another English model) is recommended for accurate NER/POS.
+- Sampling sizes and thresholds live in `utils/constants.py` and can be tuned for different evaluation budgets.
+
+## Next steps / suggestions
+
+- Add a small test-suite that validates loader normalization and the three detection heuristics (numbers, language, unusual proper nouns).
+- Provide a lightweight CLI option to run each stratum independently for development and faster iteration.
+
+## License
+
+This repository does not include an explicit license file; add one (e.g., MIT) if you intend to publish or share the code.

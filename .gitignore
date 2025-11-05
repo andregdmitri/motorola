@@ -200,6 +200,5 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-data/*
 .env
 .vscode/settings.json
