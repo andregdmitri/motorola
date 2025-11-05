@@ -17,7 +17,7 @@ class TextAnalyzer:
     
     def __init__(self, spacy_model: str):
         """Initialize with a spaCy model name."""
-        spacy.require_gpu()
+        # spacy.require_gpu()
         self.nlp = spacy.load(spacy_model)
 
     def contains_number(self, text: str) -> bool:
