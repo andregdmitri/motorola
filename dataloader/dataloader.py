@@ -1,6 +1,32 @@
 import ijson
+import logging
 from pathlib import Path
-from typing import Iterator, Dict, Any, Union
+from typing import Iterator, Dict, Any, Union, Optional
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class JeopardyRecord:
+    """Container class for a Jeopardy record with utility methods."""
+    category: Optional[str]
+    air_date: Optional[str]
+    question: Optional[str]
+    value: Optional[int]
+    answer: Optional[str]
+    round: Optional[str]
+    show_number: Optional[str]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'JeopardyRecord':
+        """Create a JeopardyRecord from a dictionary."""
+        return cls(**{
+            field: data.get(field) for field in cls.__dataclass_fields__
+        })
+    
+    def get_full_text(self) -> str:
+        """Get concatenated question and answer text."""
+        return f"{self.question or ''} {self.answer or ''}"
 
 class JeopardyDataLoader:
     """
@@ -26,14 +52,12 @@ class JeopardyDataLoader:
         if not self.path.exists():
             print(f"Warning: File not found at {self.path}")
 
-    def iter_rows(self) -> Iterator[Dict[str, Any]]:
+    def iter_rows(self) -> Iterator[JeopardyRecord]:
         """
-        Streams the JSON file and yields one normalized record dict at a time.
+        Streams the JSON file and yields one normalized JeopardyRecord at a time.
         """
         try:
             with self.path.open("rb") as f:
-                # ijson.items(f, "item") assumes a structure like: [ {...}, {...} ]
-                # It yields each object in the list as a dict.
                 parser = ijson.items(f, "item")
                 
                 for record in parser:
@@ -55,7 +79,7 @@ class JeopardyDataLoader:
                         
                         clean[key] = value
                         
-                    yield clean
+                    yield JeopardyRecord.from_dict(clean)
                     
         except FileNotFoundError:
             print(f"Error: Could not open file {self.path}")
@@ -76,3 +100,27 @@ class JeopardyDataLoader:
         except (ValueError, TypeError, AttributeError):
             # Fails on "None", bad strings, etc.
             return None
+
+    def save_jsonl(self, items: list, output_path: Union[str, Path], sample_size: int = None) -> None:
+        """
+        Save records to a JSONL file, optionally taking a random sample.
+        
+        Args:
+            items: List of records to save
+            output_path: Path where to save the JSONL file
+            sample_size: If provided, save this many randomly sampled items
+        """
+        import json
+        import random
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if sample_size and len(items) > sample_size:
+            items = random.sample(items, sample_size)
+            
+        with output_path.open('w', encoding='utf-8') as f:
+            for item in items:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        
+        print(f"Saved {len(items)} records to {output_path}")
