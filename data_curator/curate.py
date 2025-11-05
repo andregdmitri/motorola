@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from tqdm import tqdm
 import random
 from dataclasses import dataclass
@@ -41,7 +41,7 @@ class JeopardyCurator:
         self.text_analyzer = TextAnalyzer(DEFAULT_SPACY_MODEL)
         self.corpus_propn_counter = Counter() # roper-noun frequency counter
 
-    def update_corpus_stats_batch(self, records: List[JeopardyRecord], n_process: int = NUM_CORES) -> None:
+    def update_corpus_stats_batch(self, records: List[JeopardyRecord], n_process: int = NUM_PROCESS) -> None:
         """Update corpus-wide proper-noun frequency counts using batch multi-core spaCy."""
         texts = [r.get_full_text() for r in records]
         batch_results = self.text_analyzer.extract_proper_nouns(texts, n_process=n_process)
@@ -86,58 +86,68 @@ class JeopardyCurator:
             logger.warning(f"Error checking unusual proper nouns: {e}")
             return False
         
-    def process_records(self, estimate_total: int = 217000, n_process: int = NUM_CORES, stratify: bool = True) -> CurationResults:
+    def process_records(self, estimate_total: int = 217000, n_process: int = NUM_PROCESS, stratify: bool = False, batch_size: int = 1000) -> CurationResults:
         """
-        Process all records in the dataset, categorizing them by different criteria.
-        
+        Process all records in the dataset in batches, categorizing them by different criteria.
+        Streams results directly to output files to minimize memory usage.
         Args:
             estimate_total: Estimated total records for progress bar
-            
+            batch_size: Number of records to process per batch
         Returns:
-            CurationResults containing statistics and categorized records
+            CurationResults containing statistics and categorized records (lists will be empty, only counts are valid)
         """
-        # Initialize collectors
-        number_records = []
-        non_english_records = []
-        unusual_records = []
-
+        total_processed = 0
+        number_count = 0
+        non_english_count = 0
+        unusual_count = 0
 
         logger.info(f"Processing records from {self.source_file}")
-        all_records = list(self.loader.iter_rows())
-        # Batch update corpus stats using multi-core spaCy
-        self.update_corpus_stats_batch(all_records, n_process=n_process)
+        output_dir = Path(DEFAULT_OUTPUT_DIR)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        number_path = output_dir / "number_phrases.jsonl"
+        non_english_path = output_dir / "non_english_phrases.jsonl"
+        unusual_path = output_dir / "unusual_proper_nouns.jsonl"
 
-        for record in tqdm(all_records, total=estimate_total, desc="Processing"):
-            try:
-                # Classify record according to different criteria
-                if self.contains_numbers(record):
-                    number_records.append(record)
+        # Open output files in append mode
+        number_f = open(number_path, 'w', encoding='utf-8')
+        non_english_f = open(non_english_path, 'w', encoding='utf-8')
+        unusual_f = open(unusual_path, 'w', encoding='utf-8')
 
-                if self.contains_non_english(record):
-                    non_english_records.append(record)
+        batch = []
+        for record in tqdm(self.loader.iter_rows(), total=estimate_total, desc="Processing"):
+            batch.append(record)
+            if len(batch) >= batch_size:
+                n, ne, u = self._process_batch(batch, number_f, non_english_f, unusual_f, n_process)
+                number_count += n
+                non_english_count += ne
+                unusual_count += u
+                total_processed += len(batch)
+                batch = []
+        # Process any remaining records
+        if batch:
+            n, ne, u = self._process_batch(batch, number_f, non_english_f, unusual_f, n_process)
+            number_count += n
+            non_english_count += ne
+            unusual_count += u
+            total_processed += len(batch)
 
-                if self.has_unusual_proper_nouns(record):
-                    unusual_records.append(record)
-            except Exception as e:
-                # One-line catch: log and continue to next record
-                logger.debug(f"Error processing record: {e}")
+        number_f.close()
+        non_english_f.close()
+        unusual_f.close()
 
-        # Calculate statistics
-        total_processed = estimate_total  # total records processed
         totals = {
-            "number_phrases": len(number_records),
-            "non_english_phrases": len(non_english_records),
-            "unusual_proper_nouns": len(unusual_records),
+            "number_phrases": number_count,
+            "non_english_phrases": non_english_count,
+            "unusual_proper_nouns": unusual_count,
         }
-        
-        # Calculate percentages and estimated totals in full dataset
+
         stats = {
             "Total Records Processed": total_processed,
             "Statistics per Category": {
                 category: {
                     "count": count,
-                    "percentage": (count / total_processed) * 100,
-                    "estimated_total": int((count / total_processed) * 200000)
+                    "percentage": (count / total_processed) * 100 if total_processed else 0,
+                    "estimated_total": int((count / total_processed) * 200000) if total_processed else 0
                 }
                 for category, count in totals.items()
             }
@@ -153,17 +163,61 @@ class JeopardyCurator:
             logger.info(f"  Percentage: {details['percentage']:.2f}%")
             logger.info(f"  Estimated total in 200K records: {details['estimated_total']:,}")
 
-        # Save results
-        output_dir = Path(DEFAULT_OUTPUT_DIR)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        # Use stratified sampling to reduce bias in value, air_date, and round
-        self.loader.save_jsonl(number_records, output_dir / "number_phrases.jsonl", sample_size=self.sample_size, stratify=stratify)
-        self.loader.save_jsonl(non_english_records, output_dir / "non_english_phrases.jsonl", sample_size=self.sample_size, stratify=stratify)
-        self.loader.save_jsonl(unusual_records, output_dir / "unusual_proper_nouns.jsonl", sample_size=self.sample_size, stratify=stratify)
+        # If sampling is needed, do it in a second pass on the output files
+        # (not implemented here, but can be done efficiently)
 
         return CurationResults(
             totals=totals,
-            number_records=number_records,
-            non_english_records=non_english_records,
-            unusual_records=unusual_records
+            number_records=[],
+            non_english_records=[],
+            unusual_records=[]
         )
+
+    def _process_batch(self, batch, number_f, non_english_f, unusual_f, n_process):
+        import json
+
+        # 0) batch update corpus propn stats
+        texts = [r.get_full_text() for r in batch]
+        batch_propn_results = self.text_analyzer.extract_proper_nouns(texts, n_process=n_process)
+        for propn_set in batch_propn_results:
+            for tok in propn_set:
+                self.corpus_propn_counter[tok] += 1
+
+        # 1) batch NER + PROPN for answers (this is the missing piece)
+        answers = [(r.answer or "") for r in batch]
+        batch_answer_ents  = self.text_analyzer.extract_named_entities(answers, n_process=n_process)
+        batch_answer_propns = self.text_analyzer.extract_proper_nouns(answers, n_process=n_process)
+
+        n_count = ne_count = u_count = 0
+
+        for idx, record in enumerate(batch):
+            try:
+                rec_dict = record.__dict__ if hasattr(record, '__dict__') else record
+                full = record.get_full_text()
+
+                if self.text_analyzer.contains_number(full):
+                    number_f.write(json.dumps(rec_dict, ensure_ascii=False) + "\n")
+                    n_count += 1
+
+                if self.text_analyzer.contains_non_english(full):
+                    non_english_f.write(json.dumps(rec_dict, ensure_ascii=False) + "\n")
+                    ne_count += 1
+
+                # unusual proper noun test
+                ents   = batch_answer_ents[idx] if batch_answer_ents else []
+                propns = batch_answer_propns[idx] if batch_answer_propns else set()
+                tokens = {t for _, t in ents} | propns
+
+                if tokens:
+                    rare_count = sum(
+                        1 for tok in tokens
+                        if self.corpus_propn_counter.get(tok.strip(), 0) <= FREQ_THRESHOLD
+                    )
+                    if (rare_count / len(tokens)) >= SCORE_THRESHOLD:
+                        unusual_f.write(json.dumps(rec_dict, ensure_ascii=False) + "\n")
+                        u_count += 1
+
+            except Exception as e:
+                logger.debug(f"Error processing record: {e}")
+
+        return n_count, ne_count, u_count

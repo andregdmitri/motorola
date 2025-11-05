@@ -86,7 +86,7 @@ class JeopardyDataLoader:
         output_path: Union[str, Path],
         sample_size: int = None,
         stratify: bool = True,
-        stratify_fields: list = ["value", "air_date", "round"]
+        stratify_fields: list = ["air_date"]
     ) -> None:
         """
         Save records to a JSONL file, optionally using stratified or random sampling.
