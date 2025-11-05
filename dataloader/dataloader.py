@@ -1,5 +1,4 @@
-import json
-import ijson  # A library for streaming JSON parsing
+import ijson
 from pathlib import Path
 from typing import Iterator, Dict, Any, Union
 
