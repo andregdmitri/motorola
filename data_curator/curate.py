@@ -41,10 +41,13 @@ class JeopardyCurator:
         self.text_analyzer = TextAnalyzer(DEFAULT_SPACY_MODEL)
         self.corpus_propn_counter = Counter() # roper-noun frequency counter
 
-    def update_corpus_stats(self, record: JeopardyRecord) -> None:
-        """Update corpus-wide proper-noun frequency counts."""
-        for tok in self.text_analyzer.extract_proper_nouns(record.get_full_text()):
-            self.corpus_propn_counter[tok] += 1
+    def update_corpus_stats_batch(self, records: List[JeopardyRecord], n_process: int = NUM_CORES) -> None:
+        """Update corpus-wide proper-noun frequency counts using batch multi-core spaCy."""
+        texts = [r.get_full_text() for r in records]
+        batch_results = self.text_analyzer.extract_proper_nouns(texts, n_process=n_process)
+        for propn_set in batch_results:
+            for tok in propn_set:
+                self.corpus_propn_counter[tok] += 1
 
     def contains_numbers(self, record: JeopardyRecord) -> bool:
         """Return True when record question/answer contains numeric tokens."""
@@ -67,8 +70,10 @@ class JeopardyCurator:
             return False
 
         try:
-            ents = self.text_analyzer.extract_named_entities(record.answer)
-            propns = self.text_analyzer.extract_proper_nouns(record.answer)
+            ents_list = self.text_analyzer.extract_named_entities([record.answer])
+            propns_list = self.text_analyzer.extract_proper_nouns([record.answer])
+            ents = ents_list[0] if ents_list else []
+            propns = propns_list[0] if propns_list else set()
             tokens = {t for _, t in ents} | propns
             if not tokens:
                 return False
@@ -81,7 +86,7 @@ class JeopardyCurator:
             logger.warning(f"Error checking unusual proper nouns: {e}")
             return False
         
-    def process_records(self, estimate_total: int = 217000) -> CurationResults:
+    def process_records(self, estimate_total: int = 217000, n_process: int = NUM_CORES, stratify: bool = True) -> CurationResults:
         """
         Process all records in the dataset, categorizing them by different criteria.
         
@@ -96,12 +101,14 @@ class JeopardyCurator:
         non_english_records = []
         unusual_records = []
 
-        logger.info(f"Processing records from {self.source_file}")
-        for record in tqdm(self.loader.iter_rows(), total=estimate_total, desc="Processing"):
-            try:
-                # Update corpus-wide statistics once per record
-                self.update_corpus_stats(record)
 
+        logger.info(f"Processing records from {self.source_file}")
+        all_records = list(self.loader.iter_rows())
+        # Batch update corpus stats using multi-core spaCy
+        self.update_corpus_stats_batch(all_records, n_process=n_process)
+
+        for record in tqdm(all_records, total=estimate_total, desc="Processing"):
+            try:
                 # Classify record according to different criteria
                 if self.contains_numbers(record):
                     number_records.append(record)
@@ -149,10 +156,10 @@ class JeopardyCurator:
         # Save results
         output_dir = Path(DEFAULT_OUTPUT_DIR)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.loader.save_jsonl(number_records, output_dir / "number_phrases.jsonl", sample_size=self.sample_size)
-        self.loader.save_jsonl(non_english_records, output_dir / "non_english_phrases.jsonl", sample_size=self.sample_size)
-        self.loader.save_jsonl(unusual_records, output_dir / "unusual_proper_nouns.jsonl", sample_size=self.sample_size)
+        # Use stratified sampling to reduce bias in value, air_date, and round
+        self.loader.save_jsonl(number_records, output_dir / "number_phrases.jsonl", sample_size=self.sample_size, stratify=stratify)
+        self.loader.save_jsonl(non_english_records, output_dir / "non_english_phrases.jsonl", sample_size=self.sample_size, stratify=stratify)
+        self.loader.save_jsonl(unusual_records, output_dir / "unusual_proper_nouns.jsonl", sample_size=self.sample_size, stratify=stratify)
 
         return CurationResults(
             totals=totals,
