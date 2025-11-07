@@ -4,7 +4,7 @@ from typing import Dict, List
 from tqdm import tqdm
 import random
 from dataclasses import dataclass
-
+import json
 from utils.constants import *
 from utils.text_analysis import TextAnalyzer
 from dataloader.dataloader import JeopardyDataLoader, JeopardyRecord
@@ -86,7 +86,7 @@ class JeopardyCurator:
             logger.warning(f"Error checking unusual proper nouns: {e}")
             return False
         
-    def process_records(self, estimate_total: int = 217000, n_process: int = NUM_PROCESS, stratify: bool = False, batch_size: int = 1000) -> CurationResults:
+    def process_records(self, estimate_total: int = 217000, n_process: int = NUM_PROCESS, stratify: bool = False, batch_size: int = BATCH_SIZE) -> CurationResults:
         """
         Process all records in the dataset in batches, categorizing them by different criteria.
         Streams results directly to output files to minimize memory usage.
@@ -163,8 +163,24 @@ class JeopardyCurator:
             logger.info(f"  Percentage: {details['percentage']:.2f}%")
             logger.info(f"  Estimated total in 200K records: {details['estimated_total']:,}")
 
-        # If sampling is needed, do it in a second pass on the output files
-        # (not implemented here, but can be done efficiently)
+        # 2nd pass: draw sample_size (default 1000) examples from each output
+        for name, path in [
+            ("number", number_path),
+            ("non_english", non_english_path),
+            ("unusual", unusual_path),
+        ]:
+            with open(path, "r", encoding="utf-8") as f:
+                items = [json.loads(x) for x in f]
+
+            # split into chunks of self.sample_size
+            for i in range(0, len(items), self.sample_size):
+                chunk = items[i:i + self.sample_size]
+                chunk_idx = i // self.sample_size
+                chunk_out = output_dir / f"{name}_chunk_{chunk_idx:04d}.jsonl"
+                with chunk_out.open("w", encoding="utf-8") as out:
+                    for rec in chunk:
+                        out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                logger.info(f"saved chunk {chunk_idx} ({len(chunk)} rows) → {chunk_out}")
 
         return CurationResults(
             totals=totals,

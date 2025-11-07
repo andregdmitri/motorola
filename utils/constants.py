@@ -12,5 +12,5 @@ SAMPLE_SIZE = int(os.getenv("SAMPLE_SIZE", "1000"))
 FREQ_THRESHOLD = int(os.getenv("FREQ_THRESHOLD", "5"))  # Frequency threshold for unusual PROPNs
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.5")) # Threshold for unusual PROPNs
 NUM_PROCESS = int(os.getenv("NUM_PROCESS", "1"))
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "4000"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1000"))
 NON_ENGLISH_THRESHOLD = float(os.getenv("NON_ENGLISH_THRESHOLD", "0.75"))
