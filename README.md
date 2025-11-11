@@ -157,4 +157,4 @@ Key runtime dependencies (see `requirements.txt`):
 
 ## License
 
-This repository does not include an explicit license file; add one (e.g., MIT) if you intend to publish or share the code.
+This repository does not include an explicit license file
