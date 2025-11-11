@@ -86,3 +86,76 @@ Key runtime dependencies (see `requirements.txt`):
 ## License
 
 This repository does not include an explicit license file; add one (e.g., MIT) if you intend to publish or share the code.
+
+
+## Diagram
+                            ┌────────────────────────────────────────┐
+                            │          JeopardyCurator               │
+                            │  (main orchestration class)            │
+                            └────────────────────────────────────────┘
+                                           │
+                                           │
+                          ┌────────────────┴────────────────┐
+                          │                                 │
+                  initialize()                        process_records()
+                          │                                 │
+                          │                                 │
+                          ▼                                 ▼
+          ┌────────────────────────────┐        ┌──────────────────────────────┐
+          │  JeopardyDataLoader        │        │  Batching & File Management  │
+          │  (streams JSON data)       │        │  number/non-english/unusual  │
+          └────────────────────────────┘        └──────────────────────────────┘
+                          │                                 │
+                          │ iter_rows()                     │
+                          │ yields JeopardyRecord objects   │
+                          ▼                                 ▼
+               ┌────────────────────────┐          ┌────────────────────────────┐
+               │ JeopardyRecord         │          │ _process_batch()           │
+               │ (single question)      │          │ processes each batch:      │
+               │ - question             │          │                            │
+               │ - answer               │          │  1. Extract all PROPNs →   │
+               │ - round, value, etc.   │          │     update global counter  │
+               └────────────────────────┘          │                            │
+                                                   │  2. Extract NER + PROPN    │
+                                                   │     from answers           │
+                                                   │                            │
+                                                   │  3. For each record:       │
+                                                   │     • contains_number()?   │
+                                                   │     • contains_non_english?│
+                                                   │     • unusual_propn()?     │
+                                                   │                            │
+                                                   │  4. Write each match to:   │
+                                                   │     → number_phrases.jsonl │
+                                                   │     → non_english.jsonl    │
+                                                   │     → unusual_propn.jsonl  │
+                                                   └────────────────────────────┘
+                                                                     │
+                                                                     │
+                                                                     ▼
+                                      ┌────────────────────────────────────────────┐
+                                      │   TextAnalyzer (spaCy-based utilities)     │
+                                      │--------------------------------------------│
+                                      │ contains_number(text) → regex check        │
+                                      │ contains_non_english(text) → langdetect    │
+                                      │ extract_proper_nouns(texts) → PROPN tokens │
+                                      │ extract_named_entities(texts) → NER tuples │
+                                      └────────────────────────────────────────────┘
+                                                                     │
+                                                                     ▼
+                                      ┌────────────────────────────────────────────┐
+                                      │ corpus_propn_counter (global frequency map)│
+                                      │  Tracks how often each proper noun appears │
+                                      │  Used to detect “unusual” proper nouns     │
+                                      └────────────────────────────────────────────┘
+                                                                     │
+                                                                     ▼
+                             ┌──────────────────────────────────────────────────────┐
+                             │ Output JSONL files (streamed, low memory footprint)  │
+                             │------------------------------------------------------│
+                             │ number_phrases.jsonl                                 │
+                             │ non_english_phrases.jsonl                            │
+                             │ unusual_proper_nouns.jsonl                           │
+                             │                                                      │
+                             │ → Then split into 1000-record chunks                 │
+                             │    number_chunk_0000.jsonl etc.                      │
+                             └──────────────────────────────────────────────────────┘

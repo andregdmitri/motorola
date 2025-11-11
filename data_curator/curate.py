@@ -51,11 +51,13 @@ class JeopardyCurator:
         Returns:
             CurationResults containing statistics and categorized records (lists will be empty, only counts are valid)
         """
+        # Initialize counters
         total_processed = 0
         number_count = 0
         non_english_count = 0
         unusual_count = 0
 
+        # Prepare output folder and files
         logger.info(f"Processing records from {self.source_file}")
         output_dir = Path(DEFAULT_OUTPUT_DIR)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -69,6 +71,7 @@ class JeopardyCurator:
         unusual_f = open(unusual_path, 'w', encoding='utf-8')
 
         batch = []
+        # Iterate over the dataset in batches
         for record in tqdm(self.loader.iter_rows(), total=estimate_total, desc="Processing"):
             batch.append(record)
             if len(batch) >= batch_size:
@@ -78,6 +81,7 @@ class JeopardyCurator:
                 unusual_count += u
                 total_processed += len(batch)
                 batch = []
+
         # Process any remaining records
         if batch:
             n, ne, u = self._process_batch(batch, number_f, non_english_f, unusual_f, n_process)
@@ -86,6 +90,7 @@ class JeopardyCurator:
             unusual_count += u
             total_processed += len(batch)
 
+        # closing files
         number_f.close()
         non_english_f.close()
         unusual_f.close()
@@ -96,6 +101,7 @@ class JeopardyCurator:
             "unusual_proper_nouns": unusual_count,
         }
 
+        # computing stats
         stats = {
             "Total Records Processed": total_processed,
             "Statistics per Category": {
@@ -154,13 +160,14 @@ class JeopardyCurator:
             for tok in propn_set:
                 self.corpus_propn_counter[tok] += 1
 
-        # 1) batch NER + PROPN for answers (this is the missing piece)
+        # 1) batch NER + PROPN for ANSWERS
         answers = [(r.answer or "") for r in batch]
         batch_answer_ents  = self.text_analyzer.extract_named_entities(answers, n_process=n_process)
         batch_answer_propns = self.text_analyzer.extract_proper_nouns(answers, n_process=n_process)
 
         n_count = ne_count = u_count = 0
-
+        
+        # loop throgh each record
         for idx, record in enumerate(batch):
             try:
                 rec_dict = record.__dict__ if hasattr(record, '__dict__') else record
