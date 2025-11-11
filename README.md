@@ -83,11 +83,6 @@ Key runtime dependencies (see `requirements.txt`):
 - Add a small test-suite that validates loader normalization and the three detection heuristics (numbers, language, unusual proper nouns).
 - Provide a lightweight CLI option to run each stratum independently for development and faster iteration.
 
-## License
-
-This repository does not include an explicit license file; add one (e.g., MIT) if you intend to publish or share the code.
-
-
 ## Diagram
                             ┌────────────────────────────────────────┐
                             │          JeopardyCurator               │
@@ -159,3 +154,7 @@ This repository does not include an explicit license file; add one (e.g., MIT) i
                              │ → Then split into 1000-record chunks                 │
                              │    number_chunk_0000.jsonl etc.                      │
                              └──────────────────────────────────────────────────────┘
+
+## License
+
+This repository does not include an explicit license file; add one (e.g., MIT) if you intend to publish or share the code.
