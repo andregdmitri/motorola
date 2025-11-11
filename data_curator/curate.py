@@ -40,51 +40,6 @@ class JeopardyCurator:
         # Initialize analysis tools --- USING SPACY
         self.text_analyzer = TextAnalyzer(DEFAULT_SPACY_MODEL)
         self.corpus_propn_counter = Counter() # roper-noun frequency counter
-
-    def update_corpus_stats_batch(self, records: List[JeopardyRecord], n_process: int = NUM_PROCESS) -> None:
-        """Update corpus-wide proper-noun frequency counts using batch multi-core spaCy."""
-        texts = [r.get_full_text() for r in records]
-        batch_results = self.text_analyzer.extract_proper_nouns(texts, n_process=n_process)
-        for propn_set in batch_results:
-            for tok in propn_set:
-                self.corpus_propn_counter[tok] += 1
-
-    def contains_numbers(self, record: JeopardyRecord) -> bool:
-        """Return True when record question/answer contains numeric tokens."""
-        return self.text_analyzer.contains_number(record.get_full_text())
-
-    def contains_non_english(self, record: JeopardyRecord) -> bool:
-        """Return True when record question/answer contains non-English tokens."""
-        return self.text_analyzer.contains_non_english(record.get_full_text())
-
-    def has_unusual_proper_nouns(
-        self,
-        record: JeopardyRecord,
-        freq_threshold: int = FREQ_THRESHOLD,
-        score_threshold: float = SCORE_THRESHOLD,
-    ) -> bool:
-        """
-        Decide whether the record's answer contains an unusual proportion of rare PROPN tokens.
-        """
-        if not record.answer:
-            return False
-
-        try:
-            ents_list = self.text_analyzer.extract_named_entities([record.answer])
-            propns_list = self.text_analyzer.extract_proper_nouns([record.answer])
-            ents = ents_list[0] if ents_list else []
-            propns = propns_list[0] if propns_list else set()
-            tokens = {t for _, t in ents} | propns
-            if not tokens:
-                return False
-
-            rare_count = sum(
-                1 for tok in tokens if self.corpus_propn_counter.get(tok.strip(), 0) <= freq_threshold
-            )
-            return (rare_count / len(tokens)) >= score_threshold
-        except Exception as e:
-            logger.warning(f"Error checking unusual proper nouns: {e}")
-            return False
         
     def process_records(self, estimate_total: int = 217000, n_process: int = NUM_PROCESS, stratify: bool = False, batch_size: int = BATCH_SIZE) -> CurationResults:
         """

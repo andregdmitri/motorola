@@ -17,8 +17,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     curator = JeopardyCurator(args.source_file, sample_size=args.sample_size)
-    # Pass stratify argument to process_records via save_jsonl
-    # To do this, we need to patch process_records to accept stratify and forward it, or monkeypatch here
-    # For now, call process_records and monkeypatch save_jsonl if needed
-    # The current process_records does not accept stratify, so we need to patch it in curate.py as well
     curator.process_records(estimate_total=args.estimate_total, stratify=args.stratify)
